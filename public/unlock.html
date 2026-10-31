@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>输入验证码</title>
+<link rel="stylesheet" href="/css/common.css">
+</head>
+<body>
+<div class="wrap" style="max-width:420px">
+  <header class="top"><h1>输入验证码</h1><a href="/">返回主页</a></header>
+  <div class="card">
+    <label for="code">验证码</label>
+    <input id="code" autocomplete="off" autocapitalize="characters" placeholder="例如 AB3K-9XQ2" autofocus>
+    <div class="row" style="margin-top:14px">
+      <button id="go" class="primary">解锁</button>
+    </div>
+    <div id="msg" class="msg"></div>
+    <p class="muted">验证码会绑定到你当前的网络（IP）。换网络后需要管理员重置绑定。</p>
+  </div>
+</div>
+<script src="/js/common.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+let next = params.get('next') || '/';
+if (!next.startsWith('/') || next.startsWith('//')) next = '/';
+
+async function unlock() {
+  const msg = $('#msg');
+  setMsg(msg, '');
+  try {
+    await api('/api/auth/unlock', { method: 'POST', body: { code: $('#code').value }, noRedirect: true });
+    location.href = next;
+  } catch (e) {
+    setMsg(msg, e.message, 'err');
+  }
+}
+$('#go').onclick = unlock;
+$('#code').addEventListener('keydown', (e) => e.key === 'Enter' && unlock());
+</script>
+</body>
+</html>

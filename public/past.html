@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>历年真题</title>
+<link rel="stylesheet" href="/css/common.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top"><h1>历年真题</h1><a href="/">主页</a></header>
+  <input id="q" placeholder="搜索标题或年份…">
+  <div id="list" style="margin-top:14px"></div>
+  <div id="viewerBox" class="hidden">
+    <h2 id="viewerTitle"></h2>
+    <iframe id="viewer" class="viewer" title="PDF 预览"></iframe>
+  </div>
+</div>
+<script src="/js/common.js"></script>
+<script>
+let papers = [];
+
+function render() {
+  const kw = $('#q').value.trim().toLowerCase();
+  const rows = papers.filter((p) => !kw || `${p.title} ${p.year || ''}`.toLowerCase().includes(kw));
+  $('#list').innerHTML = rows.length
+    ? rows.map((p) => `
+      <div class="card row">
+        <div class="grow"><strong>${esc(p.title)}</strong>
+          <div class="muted">${p.year ? p.year + ' 年 · ' : ''}${fmtSize(p.size)}</div></div>
+        <button data-view="${p.id}">在线查看</button>
+        <a class="btn" href="/api/files/past/${p.id}?download=1">下载</a>
+      </div>`).join('')
+    : '<p class="muted">暂无试卷。</p>';
+}
+
+$('#q').oninput = render;
+$('#list').onclick = (e) => {
+  const id = e.target.dataset.view;
+  if (!id) return;
+  const p = papers.find((x) => x.id === id);
+  $('#viewerTitle').textContent = p.title;
+  $('#viewer').src = `/api/files/past/${id}`;
+  $('#viewerBox').classList.remove('hidden');
+  $('#viewerBox').scrollIntoView({ behavior: 'smooth' });
+};
+
+api('/api/papers/past').then((d) => { papers = d; render(); })
+  .catch((e) => { $('#list').innerHTML = `<p class="msg err">${esc(e.message)}</p>`; });
+</script>
+</body>
+</html>

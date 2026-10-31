@@ -1,0 +1,7 @@
+node_modules/
+data/
+*.log
+.env
+.DS_Store
+# 真题 PDF 属于版权材料，通过后台上传到 data/，不进入仓库
+*.pdf

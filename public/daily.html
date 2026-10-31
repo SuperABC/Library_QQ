@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>每日一练</title>
+<link rel="stylesheet" href="/css/common.css">
+<style>
+  .grades button.sel { background: var(--primary); border-color: var(--primary); color: var(--primary-text); }
+  .score { font-size: 28px; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top"><h1>每日一练</h1><a href="/">主页</a></header>
+
+  <div class="row">
+    <label for="date" style="margin:0">日期</label>
+    <select id="date" style="width:auto"></select>
+    <span id="status" class="badge"></span>
+  </div>
+
+  <div id="paper"></div>
+  <div id="result" class="card hidden"></div>
+
+  <h2>历史记录</h2>
+  <div id="history" class="muted"></div>
+</div>
+<script src="/js/common.js"></script>
+<script>
+const GRADES = [[0, '没答出'], [0.5, '部分正确'], [1, '基本正确']];
+let date = '';
+let paper = null;
+let answers = null; // 提交后才拿到参考答案
+let st = { answers: {}, grades: {}, submitted: false };
+
+const key = (d) => 'daily:' + d;
+function load(d) {
+  try { return JSON.parse(localStorage.getItem(key(d))) || null; } catch { return null; }
+}
+function save() {
+  try { localStorage.setItem(key(date), JSON.stringify(st)); } catch {}
+}
+
+function score(s, n) {
+  const sum = Object.values(s.grades).reduce((a, b) => a + b, 0);
+  return { sum, full: n };
+}
+
+function renderHistory() {
+  const rows = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k.startsWith('daily:')) continue;
+    try {
+      const s = JSON.parse(localStorage.getItem(k));
+      if (s.submitted && s.total) rows.push({ d: k.slice(6), sum: Object.values(s.grades).reduce((a, b) => a + b, 0), total: s.total });
+    } catch {}
+  }
+  rows.sort((a, b) => b.d.localeCompare(a.d));
+  $('#history').innerHTML = rows.length
+    ? `<table><tr><th>日期</th><th>得分（自评）</th></tr>${rows.map((r) =>
+        `<tr><td>${r.d}</td><td>${r.sum} / ${r.total}</td></tr>`).join('')}</table>`
+    : '记录保存在当前浏览器，完成自评后出现。';
+}
+
+function render() {
+  const total = paper.questions.length;
+  $('#paper').innerHTML = paper.questions.map((q, i) => {
+    const a = answers && answers[q.id];
+    const mine = st.answers[q.id] || '';
+    const hits = a ? a.keywords.filter((k) => mine.toLowerCase().includes(k.toLowerCase())) : [];
+    return `<div class="card" data-id="${q.id}">
+      <div class="stem"><strong>${i + 1}.</strong> ${esc(q.stem)}</div>
+      ${q.source ? `<div class="muted">${esc(q.source)}</div>` : ''}
+      <textarea data-ans="${q.id}" placeholder="在这里写下你的答案…" ${st.submitted ? 'readonly' : ''}>${esc(mine)}</textarea>
+      ${a ? `
+        <div class="answer"><strong>参考答案</strong><br>${highlight(a.answer, a.keywords)}</div>
+        ${a.keywords.length ? `<div class="muted" style="margin-top:6px">关键词命中 ${hits.length} / ${a.keywords.length}${hits.length ? '：' + esc(hits.join('、')) : ''}</div>` : ''}
+        <div class="row grades" style="margin-top:8px"><span class="muted">自评：</span>
+          ${GRADES.map(([v, t]) => `<button data-g="${q.id}" data-v="${v}" class="${st.grades[q.id] === v ? 'sel' : ''}">${t}</button>`).join('')}
+        </div>` : ''}
+    </div>`;
+  }).join('') + (st.submitted ? '' : '<button id="submit" class="primary">提交并对照参考答案</button>');
+
+  const res = $('#result');
+  if (st.submitted) {
+    const done = Object.keys(st.grades).length;
+    const { sum } = score(st, total);
+    res.classList.remove('hidden');
+    res.innerHTML = `<div class="score">${sum} / ${total}</div>
+      <div class="muted">${done < total ? `还有 ${total - done} 题未自评` : '已全部自评'}</div>
+      <button id="redo" style="margin-top:8px">重新作答</button>`;
+  } else {
+    res.classList.add('hidden');
+  }
+  renderHistory();
+}
+
+async function open(d) {
+  date = d;
+  answers = null;
+  st = load(d) || { answers: {}, grades: {}, submitted: false };
+  try {
+    paper = await api('/api/daily/' + d);
+    st.total = paper.questions.length;
+    if (st.submitted) answers = await api(`/api/daily/${d}/answers`);
+    $('#status').textContent = st.submitted ? '已完成' : '未提交';
+    $('#status').className = 'badge ' + (st.submitted ? 'ok' : 'lock');
+    render();
+  } catch (e) {
+    $('#paper').innerHTML = `<p class="msg err">${esc(e.message)}</p>`;
+    $('#result').classList.add('hidden');
+  }
+}
+
+document.addEventListener('input', (e) => {
+  if (e.target.dataset.ans) { st.answers[e.target.dataset.ans] = e.target.value; save(); }
+});
+
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  if (t.id === 'submit') {
+    t.disabled = true;
+    try {
+      answers = await api(`/api/daily/${date}/answers`);
+      st.submitted = true;
+      save();
+      $('#status').textContent = '已完成';
+      $('#status').className = 'badge ok';
+      render();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (err) { alert(err.message); t.disabled = false; }
+  } else if (t.dataset.g) {
+    st.grades[t.dataset.g] = Number(t.dataset.v);
+    save();
+    render();
+  } else if (t.id === 'redo') {
+    if (!confirm('清空本日的作答和自评？')) return;
+    st = { answers: {}, grades: {}, submitted: false };
+    answers = null;
+    save();
+    open(date);
+  }
+});
+
+$('#date').onchange = (e) => open(e.target.value);
+
+(async () => {
+  try {
+    const { today, dates } = await api('/api/daily/dates');
+    const list = dates.includes(today) ? dates : [today, ...dates];
+    $('#date').innerHTML = list.map((d) => `<option value="${d}">${d}${d === today ? '（今天）' : ''}</option>`).join('');
+    open(list[0]);
+  } catch (e) {
+    $('#paper').innerHTML = `<p class="msg err">${esc(e.message)}</p>`;
+  }
+  renderHistory();
+})();
+</script>
+</body>
+</html>

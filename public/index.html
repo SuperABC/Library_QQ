@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>考试辅助</title>
+<link rel="stylesheet" href="/css/common.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>考试辅助</h1>
+    <span id="state" class="badge">检查中…</span>
+    <button id="logout" class="hidden">退出解锁</button>
+  </header>
+
+  <div class="grid">
+    <a class="card entry" href="/past.html">
+      <h3>历年真题 <span class="badge ok">公开</span></h3>
+      <div class="muted">按年份查看、在线预览或下载历年真题 PDF。</div>
+    </a>
+    <a class="card entry" href="/mock.html">
+      <h3>全部模拟题 <span class="badge lock" data-lock>需验证码</span></h3>
+      <div class="muted">模拟试卷 PDF 与模拟简答题，可搜索、对照参考答案。</div>
+    </a>
+    <a class="card entry" href="/daily.html">
+      <h3>每日一练 <span class="badge lock" data-lock>需验证码</span></h3>
+      <div class="muted">系统每天自动出一份简答题卷，作答后对照答案自评。</div>
+    </a>
+  </div>
+  <p class="muted" style="margin-top:24px">验证码请向管理员获取；验证码会与你当前所在网络绑定。</p>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+(async () => {
+  const state = $('#state');
+  try {
+    const { unlocked } = await api('/api/auth/status', { noRedirect: true });
+    state.textContent = unlocked ? '已解锁' : '未解锁';
+    state.className = 'badge ' + (unlocked ? 'ok' : 'lock');
+    document.querySelectorAll('[data-lock]').forEach((el) => {
+      el.textContent = unlocked ? '已解锁' : '需验证码';
+      el.className = 'badge ' + (unlocked ? 'ok' : 'lock');
+    });
+    $('#logout').classList.toggle('hidden', !unlocked);
+  } catch {
+    state.textContent = '无法连接服务器';
+  }
+  $('#logout').onclick = async () => {
+    await api('/api/auth/logout', { method: 'POST' });
+    location.reload();
+  };
+})();
+</script>
+</body>
+</html>

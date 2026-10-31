@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>全部模拟题</title>
+<link rel="stylesheet" href="/css/common.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top"><h1>全部模拟题</h1><a href="/">主页</a></header>
+
+  <div class="tabs">
+    <button class="active" data-tab="papers">模拟试卷（PDF）</button>
+    <button data-tab="questions">模拟题目（简答）</button>
+  </div>
+
+  <section id="papers">
+    <div id="paperList"></div>
+    <div id="viewerBox" class="hidden">
+      <h2 id="viewerTitle"></h2>
+      <iframe id="viewer" class="viewer" title="PDF 预览"></iframe>
+    </div>
+  </section>
+
+  <section id="questions" class="hidden">
+    <div class="row">
+      <input id="q" class="grow" placeholder="搜索题干、答案或标签…">
+      <button id="toggleAll">全部展开答案</button>
+    </div>
+    <p id="count" class="muted"></p>
+    <div id="qList"></div>
+  </section>
+</div>
+<script src="/js/common.js"></script>
+<script>
+let questions = [];
+let allOpen = false;
+
+document.querySelector('.tabs').onclick = (e) => {
+  const tab = e.target.dataset.tab;
+  if (!tab) return;
+  document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('active', b === e.target));
+  $('#papers').classList.toggle('hidden', tab !== 'papers');
+  $('#questions').classList.toggle('hidden', tab !== 'questions');
+};
+
+api('/api/papers/mock').then((papers) => {
+  $('#paperList').innerHTML = papers.length ? papers.map((p) => `
+    <div class="card row">
+      <div class="grow"><strong>${esc(p.title)}</strong>
+        <div class="muted">${p.year ? p.year + ' 年 · ' : ''}${fmtSize(p.size)}</div></div>
+      <button data-view="${p.id}" data-title="${esc(p.title)}">在线查看</button>
+      <a class="btn" href="/api/files/mock/${p.id}?download=1">下载</a>
+    </div>`).join('') : '<p class="muted">暂无模拟试卷。</p>';
+}).catch((e) => { $('#paperList').innerHTML = `<p class="msg err">${esc(e.message)}</p>`; });
+
+$('#paperList').onclick = (e) => {
+  const id = e.target.dataset.view;
+  if (!id) return;
+  $('#viewerTitle').textContent = e.target.dataset.title;
+  $('#viewer').src = `/api/files/mock/${id}`;
+  $('#viewerBox').classList.remove('hidden');
+  $('#viewerBox').scrollIntoView({ behavior: 'smooth' });
+};
+
+function renderQuestions() {
+  const kw = $('#q').value.trim().toLowerCase();
+  const rows = questions.filter((q) =>
+    !kw || `${q.stem} ${q.answer} ${q.tags.join(' ')}`.toLowerCase().includes(kw));
+  $('#count').textContent = `共 ${rows.length} 题`;
+  $('#qList').innerHTML = rows.map((q, i) => `
+    <div class="card">
+      <div class="stem"><strong>${i + 1}.</strong> ${esc(q.stem)}</div>
+      ${q.source || q.tags.length ? `<div class="muted">${esc([q.source, ...q.tags].filter(Boolean).join(' · '))}</div>` : ''}
+      <details ${allOpen ? 'open' : ''}><summary class="muted" style="cursor:pointer;margin-top:8px">参考答案</summary>
+        <div class="answer">${highlight(q.answer, q.keywords)}</div></details>
+    </div>`).join('') || '<p class="muted">暂无模拟题目。</p>';
+}
+
+$('#q').oninput = renderQuestions;
+$('#toggleAll').onclick = () => {
+  allOpen = !allOpen;
+  $('#toggleAll').textContent = allOpen ? '全部收起答案' : '全部展开答案';
+  renderQuestions();
+};
+
+api('/api/questions/mock').then((d) => { questions = d; renderQuestions(); }).catch(() => {});
+</script>
+</body>
+</html>

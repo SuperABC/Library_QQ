@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>管理后台</title>
+<link rel="stylesheet" href="/css/common.css">
+</head>
+<body>
+<div class="wrap" style="max-width:640px">
+  <header class="top"><h1>管理后台</h1><a href="/">返回前台</a><button id="logout" class="hidden">退出登录</button></header>
+
+  <div id="loginBox" class="card hidden">
+    <label for="pw">管理员密码</label>
+    <input id="pw" type="password" autocomplete="current-password">
+    <div class="row" style="margin-top:14px"><button id="login" class="primary">登录</button></div>
+    <div id="msg" class="msg"></div>
+    <p class="muted">密码保存在 data/secrets.json，或由环境变量 ADMIN_PASSWORD 指定。</p>
+  </div>
+
+  <div id="menu" class="grid hidden">
+    <a class="card entry" href="/admin/bank.html"><h3>题库维护</h3>
+      <div class="muted">上传/管理 PDF 试卷，录入或批量导入简答题，重新生成今日试卷。</div></a>
+    <a class="card entry" href="/admin/access.html"><h3>权限管理</h3>
+      <div class="muted">生成、查看、吊销验证码，重置 IP 绑定。</div></a>
+  </div>
+</div>
+<script src="/js/common.js"></script>
+<script>
+function show(loggedIn) {
+  $('#loginBox').classList.toggle('hidden', loggedIn);
+  $('#menu').classList.toggle('hidden', !loggedIn);
+  $('#logout').classList.toggle('hidden', !loggedIn);
+}
+async function login() {
+  setMsg($('#msg'), '');
+  try {
+    await api('/admin/api/login', { method: 'POST', body: { password: $('#pw').value }, noRedirect: true });
+    show(true);
+  } catch (e) { setMsg($('#msg'), e.message, 'err'); }
+}
+$('#login').onclick = login;
+$('#pw').addEventListener('keydown', (e) => e.key === 'Enter' && login());
+$('#logout').onclick = async () => { await api('/admin/api/logout', { method: 'POST' }); show(false); };
+api('/admin/api/me', { noRedirect: true }).then((d) => show(d.admin)).catch((e) => {
+  show(false); setMsg($('#msg'), e.message, 'err');
+});
+</script>
+</body>
+</html>

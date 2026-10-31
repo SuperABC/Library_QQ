@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>题库维护</title>
+<link rel="stylesheet" href="/css/common.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top"><h1>题库维护</h1><a href="/admin/">后台首页</a></header>
+
+  <div class="tabs">
+    <button class="active" data-tab="papers">PDF 试卷</button>
+    <button data-tab="questions">简答题</button>
+    <button data-tab="daily">每日试卷</button>
+  </div>
+
+  <!-- PDF 试卷 -->
+  <section id="papers">
+    <div class="card">
+      <strong>上传 PDF</strong>
+      <div class="row">
+        <div><label>类型</label><select id="pKind" style="width:auto"><option value="past">历年真题（公开）</option><option value="mock">模拟题（需验证码）</option></select></div>
+        <div class="grow"><label>标题</label><input id="pTitle" placeholder="例如：2023 年真题"></div>
+        <div><label>年份（可空）</label><input id="pYear" type="number" style="width:110px"></div>
+      </div>
+      <label>PDF 文件</label>
+      <input id="pFile" type="file" accept="application/pdf">
+      <div class="row" style="margin-top:12px"><button id="upload" class="primary">上传</button></div>
+      <div id="pMsg" class="msg"></div>
+    </div>
+    <div class="card" style="overflow-x:auto"><div id="pList"></div></div>
+  </section>
+
+  <!-- 简答题 -->
+  <section id="questions" class="hidden">
+    <div class="card">
+      <strong id="qFormTitle">添加题目</strong>
+      <label>题干</label><textarea id="qStem"></textarea>
+      <label>参考答案</label><textarea id="qAnswer"></textarea>
+      <div class="row">
+        <div class="grow"><label>关键词（逗号分隔，用于命中高亮）</label><input id="qKeywords"></div>
+        <div class="grow"><label>来源 / 标签（可空）</label><input id="qSource" placeholder="例如：2022 年真题 第3题"></div>
+        <div><label>归属</label><select id="qFrom" style="width:auto"><option value="past">真题（仅用于每日出卷）</option><option value="mock">模拟题（模拟题页可见）</option></select></div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button id="qSave" class="primary">保存</button>
+        <button id="qCancel" class="hidden">取消编辑</button>
+      </div>
+      <div id="qMsg" class="msg"></div>
+    </div>
+
+    <div class="card">
+      <strong>批量导入</strong>
+      <p class="muted" style="margin:6px 0">粘贴 JSON 数组（字段 stem / answer / keywords / source / from），或每行一题的制表符格式：<code>题干⇥答案⇥关键词(逗号分隔)⇥来源</code>（可直接从 Excel 复制）。</p>
+      <div class="row"><label style="margin:0">归属</label>
+        <select id="iFrom" style="width:auto"><option value="past">真题</option><option value="mock">模拟题</option></select></div>
+      <textarea id="iText" style="min-height:120px" placeholder='[{"stem":"…","answer":"…","keywords":["…"]}]'></textarea>
+      <div class="row" style="margin-top:12px"><button id="import">导入</button></div>
+      <div id="iMsg" class="msg"></div>
+    </div>
+
+    <div class="row"><input id="qFilter" class="grow" placeholder="搜索题目…"><select id="qFilterFrom" style="width:auto"><option value="">全部</option><option value="past">真题</option><option value="mock">模拟题</option></select></div>
+    <p id="qCount" class="muted"></p>
+    <div id="qList"></div>
+  </section>
+
+  <!-- 每日试卷 -->
+  <section id="daily" class="hidden">
+    <div class="card">
+      <p>每天首次访问时按日期为种子从全部简答题中抽题，生成后固定保存，当天所有用户看到同一份试卷。</p>
+      <div id="dInfo" class="muted"></div>
+      <div class="row" style="margin-top:12px"><button id="regen" class="danger">重新生成今日试卷</button></div>
+      <p class="muted">重新生成会覆盖今天已有的试卷；已作答用户的本地记录不受影响，但题目会变化。</p>
+      <div id="dMsg" class="msg"></div>
+    </div>
+  </section>
+</div>
+<script src="/js/common.js"></script>
+<script>
+api.on401 = '/admin/index.html';
+const A = '/admin/api';
+let bank = { papers: [], questions: [] };
+let editId = null;
+const msg = (id, t, k) => setMsg($('#' + id), t, k);
+
+document.querySelector('.tabs').onclick = (e) => {
+  const tab = e.target.dataset.tab;
+  if (!tab) return;
+  document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('active', b === e.target));
+  ['papers', 'questions', 'daily'].forEach((s) => $('#' + s).classList.toggle('hidden', s !== tab));
+};
+
+async function refresh() {
+  bank = await api(A + '/bank');
+  renderPapers();
+  renderQuestions();
+  const d = await api(A + '/daily');
+  $('#dInfo').textContent = `今天：${d.today} · 每日题数：${d.count} · 题库共 ${bank.questions.length} 题 · 已生成 ${d.dates.length} 份`;
+}
+
+// ---- PDF ----
+function renderPapers() {
+  const rows = [...bank.papers].sort((a, b) => a.kind.localeCompare(b.kind) || (b.year || 0) - (a.year || 0));
+  $('#pList').innerHTML = rows.length ? `<table><tr><th>类型</th><th>标题</th><th>年份</th><th>大小</th><th>操作</th></tr>
+    ${rows.map((p) => `<tr>
+      <td>${p.kind === 'past' ? '<span class="badge ok">真题</span>' : '<span class="badge lock">模拟</span>'}</td>
+      <td>${esc(p.title)}</td><td>${p.year || '—'}</td><td>${fmtSize(p.size)}</td>
+      <td class="row">
+        <a class="btn" target="_blank" href="/api/files/${p.kind}/${p.id}">查看</a>
+        <button data-p="rename" data-id="${p.id}">改名</button>
+        <button class="danger" data-p="del" data-id="${p.id}">删除</button></td></tr>`).join('')}</table>`
+    : '<p class="muted">还没有 PDF。</p>';
+}
+
+$('#upload').onclick = async () => {
+  const file = $('#pFile').files[0];
+  const title = $('#pTitle').value.trim() || (file && file.name.replace(/\.pdf$/i, ''));
+  if (!file) return msg('pMsg', '请选择 PDF 文件', 'err');
+  msg('pMsg', '上传中…');
+  const qs = new URLSearchParams({ kind: $('#pKind').value, title, year: $('#pYear').value });
+  try {
+    await api(`${A}/papers?${qs}`, { method: 'POST', raw: file, contentType: 'application/pdf' });
+    $('#pFile').value = ''; $('#pTitle').value = ''; $('#pYear').value = '';
+    msg('pMsg', '上传成功', 'ok');
+    await refresh();
+  } catch (e) { msg('pMsg', e.message, 'err'); }
+};
+
+$('#pList').onclick = async (e) => {
+  const { p, id } = e.target.dataset;
+  if (!p) return;
+  const paper = bank.papers.find((x) => x.id === id);
+  try {
+    if (p === 'del') {
+      if (!confirm(`删除「${paper.title}」？PDF 文件也会被删除。`)) return;
+      await api(`${A}/papers/${id}`, { method: 'DELETE' });
+    } else {
+      const title = prompt('新标题', paper.title);
+      if (!title) return;
+      const year = prompt('年份（可空）', paper.year || '');
+      await api(`${A}/papers/${id}`, { method: 'PATCH', body: { title, year } });
+    }
+    await refresh();
+  } catch (err) { msg('pMsg', err.message, 'err'); }
+};
+
+// ---- 简答题 ----
+function renderQuestions() {
+  const kw = $('#qFilter').value.trim().toLowerCase();
+  const from = $('#qFilterFrom').value;
+  const rows = bank.questions.filter((q) => (!from || q.from === from) &&
+    (!kw || `${q.stem} ${q.answer} ${q.source}`.toLowerCase().includes(kw)));
+  $('#qCount').textContent = `共 ${rows.length} / ${bank.questions.length} 题`;
+  $('#qList').innerHTML = rows.map((q) => `
+    <div class="card">
+      <div class="stem">${esc(q.stem)}</div>
+      <div class="muted">${q.from === 'mock' ? '模拟题' : '真题'}${q.source ? ' · ' + esc(q.source) : ''}${q.keywords.length ? ' · 关键词：' + esc(q.keywords.join('、')) : ''}</div>
+      <details><summary class="muted" style="cursor:pointer">参考答案</summary><div class="answer">${esc(q.answer)}</div></details>
+      <div class="row" style="margin-top:8px">
+        <button data-q="edit" data-id="${q.id}">编辑</button>
+        <button class="danger" data-q="del" data-id="${q.id}">删除</button></div>
+    </div>`).join('') || '<p class="muted">没有题目。</p>';
+}
+
+function resetForm() {
+  editId = null;
+  ['qStem', 'qAnswer', 'qKeywords', 'qSource'].forEach((id) => ($('#' + id).value = ''));
+  $('#qFormTitle').textContent = '添加题目';
+  $('#qCancel').classList.add('hidden');
+}
+
+$('#qSave').onclick = async () => {
+  const body = { stem: $('#qStem').value, answer: $('#qAnswer').value,
+    keywords: $('#qKeywords').value, source: $('#qSource').value, from: $('#qFrom').value };
+  try {
+    if (editId) await api(`${A}/questions/${editId}`, { method: 'PUT', body });
+    else await api(A + '/questions', { method: 'POST', body });
+    msg('qMsg', '已保存', 'ok');
+    resetForm();
+    await refresh();
+  } catch (e) { msg('qMsg', e.message, 'err'); }
+};
+$('#qCancel').onclick = resetForm;
+$('#qFilter').oninput = renderQuestions;
+$('#qFilterFrom').onchange = renderQuestions;
+
+$('#qList').onclick = async (e) => {
+  const { q: act, id } = e.target.dataset;
+  if (!act) return;
+  const q = bank.questions.find((x) => x.id === id);
+  if (act === 'edit') {
+    editId = id;
+    $('#qStem').value = q.stem; $('#qAnswer').value = q.answer;
+    $('#qKeywords').value = q.keywords.join('，'); $('#qSource').value = q.source; $('#qFrom').value = q.from;
+    $('#qFormTitle').textContent = '编辑题目';
+    $('#qCancel').classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } else if (confirm('删除这道题？')) {
+    try { await api(`${A}/questions/${id}`, { method: 'DELETE' }); await refresh(); }
+    catch (err) { msg('qMsg', err.message, 'err'); }
+  }
+};
+
+function parseImport(text, from) {
+  const t = text.trim();
+  if (!t) throw new Error('请粘贴要导入的内容');
+  if (t.startsWith('[') || t.startsWith('{')) {
+    const data = JSON.parse(t);
+    return (Array.isArray(data) ? data : [data]).map((q) => ({ from, ...q }));
+  }
+  return t.split(/\r?\n/).filter(Boolean).map((line) => {
+    const [stem, answer, keywords, source] = line.split('\t');
+    return { stem, answer, keywords, source, from };
+  });
+}
+
+$('#import').onclick = async () => {
+  try {
+    const items = parseImport($('#iText').value, $('#iFrom').value);
+    const r = await api(A + '/questions', { method: 'POST', body: { items } });
+    msg('iMsg', `成功导入 ${r.added} 题（共提交 ${items.length} 条，题干或答案为空的会被跳过）`, 'ok');
+    $('#iText').value = '';
+    await refresh();
+  } catch (e) { msg('iMsg', e.message, 'err'); }
+};
+
+// ---- 每日 ----
+$('#regen').onclick = async () => {
+  if (!confirm('重新生成今日试卷？')) return;
+  try {
+    const r = await api(A + '/daily/regenerate', { method: 'POST' });
+    msg('dMsg', `已重新生成 ${r.date} 的试卷，共 ${r.questions} 题`, 'ok');
+    await refresh();
+  } catch (e) { msg('dMsg', e.message, 'err'); }
+};
+
+refresh().catch((e) => msg('pMsg', e.message, 'err'));
+</script>
+</body>
+</html>

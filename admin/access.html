@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>权限管理</title>
+<link rel="stylesheet" href="/css/common.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top"><h1>权限管理</h1><a href="/admin/">后台首页</a></header>
+
+  <div class="card">
+    <strong>生成验证码</strong>
+    <div class="row">
+      <div class="grow"><label>备注（给谁用）</label><input id="note" placeholder="例如：张三"></div>
+      <div><label>有效天数（空=永久）</label><input id="days" type="number" min="1" style="width:130px"></div>
+      <div><label>最多绑定 IP 数</label><input id="maxIps" type="number" min="1" value="1" style="width:130px"></div>
+      <div><label>数量</label><input id="count" type="number" min="1" max="50" value="1" style="width:90px"></div>
+    </div>
+    <div class="row" style="margin-top:12px"><button id="create" class="primary">生成</button></div>
+    <div id="msg" class="msg"></div>
+  </div>
+
+  <h2>验证码列表</h2>
+  <div class="card" style="overflow-x:auto"><div id="list"></div></div>
+</div>
+<script src="/js/common.js"></script>
+<script>
+api.on401 = '/admin/index.html';
+const A = '/admin/api';
+let codes = [];
+
+function status(c) {
+  if (c.revoked) return '<span class="badge bad">已吊销</span>';
+  if (c.expiresAt && c.expiresAt < Date.now()) return '<span class="badge bad">已过期</span>';
+  return '<span class="badge ok">有效</span>';
+}
+
+function render() {
+  if (!codes.length) { $('#list').innerHTML = '<p class="muted">还没有验证码。</p>'; return; }
+  $('#list').innerHTML = `<table>
+    <tr><th>验证码</th><th>备注</th><th>状态</th><th>到期</th><th>绑定 IP（上限）</th><th>操作</th></tr>
+    ${[...codes].reverse().map((c) => `<tr>
+      <td><code>${esc(c.code)}</code></td>
+      <td>${esc(c.note)}</td>
+      <td>${status(c)}</td>
+      <td>${c.expiresAt ? fmtTime(c.expiresAt) : '永久'}</td>
+      <td>${c.boundIps.length ? esc(c.boundIps.join(', ')) : '—'}（${c.maxIps}）</td>
+      <td class="row">
+        <button data-act="copy" data-id="${c.id}">复制</button>
+        <button data-act="reset" data-id="${c.id}">重置绑定</button>
+        <button data-act="toggle" data-id="${c.id}">${c.revoked ? '恢复' : '吊销'}</button>
+        <button class="danger" data-act="del" data-id="${c.id}">删除</button>
+      </td></tr>`).join('')}
+  </table>`;
+}
+
+async function refresh() { codes = await api(A + '/codes'); render(); }
+
+$('#create').onclick = async () => {
+  setMsg($('#msg'), '');
+  try {
+    const made = await api(A + '/codes', { method: 'POST', body: {
+      note: $('#note').value, days: $('#days').value || null,
+      maxIps: $('#maxIps').value, count: $('#count').value } });
+    await refresh();
+    setMsg($('#msg'), '已生成：' + made.map((c) => c.code).join('  '), 'ok');
+  } catch (e) { setMsg($('#msg'), e.message, 'err'); }
+};
+
+$('#list').onclick = async (e) => {
+  const { act, id } = e.target.dataset;
+  if (!act) return;
+  const c = codes.find((x) => x.id === id);
+  try {
+    if (act === 'copy') {
+      await navigator.clipboard.writeText(c.code);
+      e.target.textContent = '已复制';
+      return;
+    }
+    if (act === 'reset') await api(`${A}/codes/${id}`, { method: 'PATCH', body: { resetIps: true } });
+    if (act === 'toggle') await api(`${A}/codes/${id}`, { method: 'PATCH', body: { revoked: !c.revoked } });
+    if (act === 'del') {
+      if (!confirm('删除后该验证码立即失效，确定？')) return;
+      await api(`${A}/codes/${id}`, { method: 'DELETE' });
+    }
+    await refresh();
+  } catch (err) { setMsg($('#msg'), err.message, 'err'); }
+};
+
+refresh();
+</script>
+</body>
+</html>
